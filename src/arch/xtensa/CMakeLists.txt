@@ -20,6 +20,8 @@ elseif(CONFIG_ICELAKE)
 	set(platform_folder icelake)
 elseif(CONFIG_TIGERLAKE)
 	set(platform_folder tigerlake)
+elseif(CONFIG_METEORLAKE)
+	set(platform_folder meteorlake)
 elseif(CONFIG_IMX8)
 	set(platform_folder imx8)
 elseif(CONFIG_IMX8X)
@@ -36,6 +38,8 @@ endif()
 
 if(CONFIG_CAVS)
 	set(family_path intel/cavs)
+elseif(CONFIG_ACE)
+	set(family_path intel/ace)
 endif()
 
 set(fw_name ${CONFIG_RIMAGE_SIGNING_SCHEMA})
@@ -411,7 +415,7 @@ ExternalProject_Add(rimage_ep
 )
 
 if(NOT DEFINED RIMAGE_PRIVATE_KEY)
-	set(RIMAGE_PRIVATE_KEY ${PROJECT_SOURCE_DIR}/keys/otc_private_key.pem)
+	set(RIMAGE_PRIVATE_KEY ${PROJECT_SOURCE_DIR}/keys/otc_private_key_3k.pem)
 endif()
 
 if(NOT DEFINED RIMAGE_IMR_TYPE)
