@@ -33,15 +33,17 @@ function test = fr_test_measure(test)
 % Author: Seppo Ingalsuo <seppo.ingalsuo@linux.intel.com>
 
 %% Check if upper and lower mask is defined
-if length(test.fr_mask_flo) || length(test.fr_mask_fhi)
+if ~isempty(test.fr_mask_flo) || ~isempty(test.fr_mask_fhi)
 	test.fr_lo = 0;
 	test.fr_hi = 0;
 end
 if test.fr_lo > 0 || test.fr_hi > 0
-	test.fr_mask_flo = [];
-	test.fr_mask_fhi = [];
-	test.fr_mask_mlo = [];
-	test.fr_mask_mhi = [];
+	test.fr_mask_fhi = [20 test.f_max];
+	test.fr_mask_flo = [200 400 3500 3600 ];
+	for i = 1:test.nch
+		test.fr_mask_mhi(:,i) = [ 1 1 ];
+		test.fr_mask_mlo(:,i) = [-10 -1 -1 -10];
+	end
 end
 
 test.ph = [];
@@ -66,10 +68,10 @@ for channel = test.ch
 
         %% Find sync
         [d, nt, nt_use, nt_skip] = find_test_signal(x(:,j), test);
-	if isempty(d)
-		test.fail = 1;
-		return
-	end
+		if isempty(d)
+			test.fail = 1;
+			return
+		end
 
         win = hamming(nt_use);
         m0 = zeros(test.nf,1);
@@ -87,16 +89,16 @@ for channel = test.ch
         test.m(:,j) = m0 - m_offs;
 
         %% Check pass/fail
-	if test.fr_lo > 0 && test.fr_hi > 0 && ~isempty(test.fr_rp_max_db)
-		idx0 = find(test.f < test.fr_hi);
-		idx1 = find(test.f(idx0) > test.fr_lo);
-		range_db = max(test.m(idx1,j))-min(test.m(idx1,j));
-		test.rp(j) = range_db/2;
-		if test.rp(j) > test.fr_rp_max_db
-			fprintf('Failed response ch%d +/- %f dBpp (max +/- %f dB)\n', ...
-				test.ch(j), test.rp(j), test.fr_rp_max_db);
-			test.fail = 1;
-		end
+        if test.fr_lo > 0 && test.fr_hi > 0 && ~isempty(test.fr_rp_max_db)
+            idx0 = find(test.f < test.fr_hi);
+            idx1 = find(test.f(idx0) > test.fr_lo);
+            range_db = max(test.m(idx1,j))-min(test.m(idx1,j));
+            test.rp(j) = range_db/2;
+            if test.rp(j) > test.fr_rp_max_db
+                fprintf('Failed response ch%d +/- %f dBpp (max +/- %f dB)\n', ...
+                    test.ch(j), test.rp(j), test.fr_rp_max_db);
+                test.fail = 1;
+            end
         end
 
         %% Find frequency response 3 dB 0-X Hz
@@ -109,7 +111,7 @@ for channel = test.ch
                 mask_hi = interp1(log(test.fr_mask_fhi), ...
 				  test.fr_mask_mhi(:,j), f_log, 'linear');
                 over_mask = test.m(:,j)-mask_hi';
-                idx = find(isnan(over_mask) == 0);
+                idx = ~isnan(over_mask);
                 [m_over_mask, io] = max(over_mask(idx));
                 if m_over_mask > 0
                         fprintf('Failed upper response mask around %.0f Hz\n', ...
@@ -122,7 +124,7 @@ for channel = test.ch
                 mask_lo = interp1(log(test.fr_mask_flo), ...
 				  test.fr_mask_mlo(:,j), f_log, 'linear');
                 under_mask = mask_lo'-test.m(:,j);
-                idx = find(isnan(under_mask) == 0);
+                idx = ~isnan(under_mask);
                 [m_under_mask, iu] = max(under_mask(idx));
                 if m_under_mask > 0
                         fprintf('Failed lower response mask around %.0f Hz\n', ...
