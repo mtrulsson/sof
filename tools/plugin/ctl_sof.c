@@ -47,43 +47,54 @@ static int sof_update_volume(snd_sof_ctl_t *ctl)
 	return 0;
 }
 
+/* number of ctls */
 static int plug_ctl_elem_count(snd_ctl_ext_t *ext)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	int count = 0, err;
+
 	printf("%s %d\n", __func__, __LINE__);
 
 	/* TODO: get count of elems from topology */
-	return count;
+	return ctl->ctls.count;
 }
 
 static int plug_ctl_elem_list(snd_ctl_ext_t * ext, unsigned int offset,
 			   snd_ctl_elem_id_t * id)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	int err;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr;
+
 	printf("%s %d\n", __func__, __LINE__);
 
+	if (offset >= ctls->count)
+		return -EINVAL;
+
+	hdr = &ctls->tplg[offset];
 
 	snd_ctl_elem_id_set_interface(id, SND_CTL_ELEM_IFACE_MIXER);
-	snd_ctl_elem_id_set_name(id, "Name from topology");
-
-	return err;
+	snd_ctl_elem_id_set_name(id, hdr->name);
+printf("offset %d name %s\n", offset, hdr->name);
+	return 0;
 }
 
 static snd_ctl_ext_key_t plug_ctl_find_elem(snd_ctl_ext_t * ext,
 					 const snd_ctl_elem_id_t * id)
 {
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr;
 	const char *name;
 	unsigned int numid;
 
-	printf("%s %d\n", __func__, __LINE__);
+	printf("%s %d id %d name %s\n", __func__, __LINE__,
+			snd_ctl_elem_id_get_numid(id),
+			snd_ctl_elem_id_get_name(id));
 
 	numid = snd_ctl_elem_id_get_numid(id);
 	name = snd_ctl_elem_id_get_name(id);
 
-	if (strcmp(name, "sof_name") == 0)
-		return 1;
+	return numid - 1;
 
 	return SND_CTL_EXT_KEY_NOT_FOUND;
 }
@@ -106,7 +117,7 @@ static int plug_ctl_get_attribute(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 
 //	if (key == 0)
 //		*count = ctl->source_volume.channels;
-
+	*count = 2;
 	return err;
 }
 
@@ -250,6 +261,13 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	err = plug_open_mmap_regions(&ctl->shm_ctx);
 	if (err < 0)
 		goto error;
+
+	/* load the topology TDOD: add pipeline ID*/
+	err = plug_parse_topology(&plug->tplg, &ctl->ipc, &ctl->ctls, plug->tplg.pipeline_id);
+	if (err < 0) {
+		SNDERR("failed to parse topology: %s", strerror(err));
+		goto error;
+	}
 
 	ctl->ext.version = SND_CTL_EXT_VERSION;
 	ctl->ext.card_idx = 0;

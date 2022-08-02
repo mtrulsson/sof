@@ -306,6 +306,10 @@ static int plug_ctl_init(struct plug_ctl *ctls, struct snd_soc_tplg_ctl_hdr *tpl
 		return -EINVAL;
 	}
 
+	/* ignore kcontrols without a name */
+	if (strnlen(tplg_ctl->name, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) == 0)
+		return 0;
+
 	_tplg_ctl = &ctls->tplg[ctls->count];
 	*_tplg_ctl = *tplg_ctl;
 	ctls->count++;
