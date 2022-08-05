@@ -204,14 +204,14 @@ int tplg_create_controls(int num_kcontrols, FILE *file, struct snd_soc_tplg_ctl_
 
 	/* allocate memory */
 	size = sizeof(struct snd_soc_tplg_ctl_hdr);
-	ctl_hdr = (struct snd_soc_tplg_ctl_hdr *)malloc(size);
+	ctl_hdr = (struct snd_soc_tplg_ctl_hdr *)calloc(size, 1);
 	if (!ctl_hdr) {
 		fprintf(stderr, "error: mem alloc\n");
 		return -errno;
 	}
 
 	size = sizeof(struct snd_soc_tplg_mixer_control);
-	mixer_ctl = (struct snd_soc_tplg_mixer_control *)malloc(size);
+	mixer_ctl = (struct snd_soc_tplg_mixer_control *)calloc(size, 1);
 	if (!mixer_ctl) {
 		fprintf(stderr, "error: mem alloc\n");
 		free(ctl_hdr);
@@ -219,7 +219,7 @@ int tplg_create_controls(int num_kcontrols, FILE *file, struct snd_soc_tplg_ctl_
 	}
 
 	size = sizeof(struct snd_soc_tplg_enum_control);
-	enum_ctl = (struct snd_soc_tplg_enum_control *)malloc(size);
+	enum_ctl = (struct snd_soc_tplg_enum_control *)calloc(size, 1);
 	if (!enum_ctl) {
 		fprintf(stderr, "error: mem alloc\n");
 		free(ctl_hdr);
@@ -228,7 +228,7 @@ int tplg_create_controls(int num_kcontrols, FILE *file, struct snd_soc_tplg_ctl_
 	}
 
 	size = sizeof(struct snd_soc_tplg_bytes_control);
-	bytes_ctl = (struct snd_soc_tplg_bytes_control *)malloc(size);
+	bytes_ctl = (struct snd_soc_tplg_bytes_control *)calloc(size, 1);
 	if (!bytes_ctl) {
 		fprintf(stderr, "error: mem alloc\n");
 		free(ctl_hdr);
