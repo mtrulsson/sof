@@ -65,7 +65,7 @@ typedef struct snd_sof_plug {
 } snd_sof_plug_t;
 
 struct plug_ctl {
-	struct snd_soc_tplg_ctl_hdr tplg[MAX_CTLS];
+	struct snd_soc_tplg_ctl_hdr *tplg[MAX_CTLS];
 	int count;
 };
 

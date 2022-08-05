@@ -38,21 +38,10 @@ typedef struct snd_sof_ctl {
 	struct plug_shm_context shm_ctx;
 } snd_sof_ctl_t;
 
-static int sof_update_volume(snd_sof_ctl_t *ctl)
-{
-	int err;
-
-	printf("%s %d\n", __func__, __LINE__);
-
-	return 0;
-}
-
 /* number of ctls */
 static int plug_ctl_elem_count(snd_ctl_ext_t *ext)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-
-	printf("%s %d\n", __func__, __LINE__);
 
 	/* TODO: get count of elems from topology */
 	return ctl->ctls.count;
@@ -70,11 +59,11 @@ static int plug_ctl_elem_list(snd_ctl_ext_t * ext, unsigned int offset,
 	if (offset >= ctls->count)
 		return -EINVAL;
 
-	hdr = &ctls->tplg[offset];
+	hdr = ctls->tplg[offset];
 
 	snd_ctl_elem_id_set_interface(id, SND_CTL_ELEM_IFACE_MIXER);
 	snd_ctl_elem_id_set_name(id, hdr->name);
-printf("offset %d name %s\n", offset, hdr->name);
+
 	return 0;
 }
 
@@ -83,20 +72,16 @@ static snd_ctl_ext_key_t plug_ctl_find_elem(snd_ctl_ext_t * ext,
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
 	struct plug_ctl *ctls = &ctl->ctls;
-	struct snd_soc_tplg_ctl_hdr *hdr;
 	const char *name;
 	unsigned int numid;
-
-	printf("%s %d id %d name %s\n", __func__, __LINE__,
-			snd_ctl_elem_id_get_numid(id),
-			snd_ctl_elem_id_get_name(id));
 
 	numid = snd_ctl_elem_id_get_numid(id);
 	name = snd_ctl_elem_id_get_name(id);
 
-	return numid - 1;
+	if (numid > ctls->count)
+		return SND_CTL_EXT_KEY_NOT_FOUND;
 
-	return SND_CTL_EXT_KEY_NOT_FOUND;
+	return numid - 1;
 }
 
 static int plug_ctl_get_attribute(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
@@ -104,42 +89,113 @@ static int plug_ctl_get_attribute(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 			       unsigned int *count)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr = ctls->tplg[key];
+	struct snd_soc_tplg_mixer_control *mixer_ctl;
+	struct snd_soc_tplg_enum_control *enum_ctl;
+	struct snd_soc_tplg_bytes_control *bytes_ctl;
 	int err = 0;
-	printf("%s %d\n", __func__, __LINE__);
 
+	switch (hdr->type) {
+	case SND_SOC_TPLG_CTL_VOLSW:
+	case SND_SOC_TPLG_CTL_VOLSW_SX:
+	case SND_SOC_TPLG_CTL_VOLSW_XR_SX:
+		mixer_ctl = (struct snd_soc_tplg_mixer_control *)hdr;
 
-	if (key & 1)
-		*type = SND_CTL_ELEM_TYPE_BOOLEAN;
-	else
-		*type = SND_CTL_ELEM_TYPE_INTEGER;
+		/* check for type - boolean should be binary values */
+		if (mixer_ctl->max == 1 && mixer_ctl->min == 0)
+			*type = SND_CTL_ELEM_TYPE_BOOLEAN;
+		else
+			*type = SND_CTL_ELEM_TYPE_INTEGER;
+		*count = 2;//mixer_ctl->num_channels; ///// WRONG is 0 !!!
 
-	*acc = SND_CTL_EXT_ACCESS_READWRITE;
+		//printf("mixer %d %d\n", __LINE__, mixer_ctl->num_channels);
+		break;
+	case SND_SOC_TPLG_CTL_ENUM:
+	case SND_SOC_TPLG_CTL_ENUM_VALUE:
+		enum_ctl = (struct snd_soc_tplg_enum_control *)hdr;
+		*type = SND_CTL_ELEM_TYPE_ENUMERATED;
+		*count = enum_ctl->num_channels;
+		break;
+	case SND_SOC_TPLG_CTL_RANGE:
+	case SND_SOC_TPLG_CTL_STROBE:
+		// TODO: ??
+		break;
+	case SND_SOC_TPLG_CTL_BYTES:
+		printf("%s %d\n", __func__, __LINE__);
+		bytes_ctl = (struct snd_soc_tplg_bytes_control *)hdr;
+		*type = SND_CTL_ELEM_TYPE_BYTES;
+		*count = 1;  //TODO - size ?
+		break;
+	}
 
-//	if (key == 0)
-//		*count = ctl->source_volume.channels;
-	*count = 2;
+	*acc = hdr->access;
+
+	/* access needs the callback to decode the data */
+	if (hdr->access & SND_CTL_EXT_ACCESS_TLV_READ ||
+	    hdr->access & SND_CTL_EXT_ACCESS_TLV_WRITE)
+		*acc |= SND_CTL_EXT_ACCESS_TLV_CALLBACK;
 	return err;
 }
 
+/*
+ * Integer ops
+ */
 static int plug_ctl_get_integer_info(snd_ctl_ext_t * ext,
 				  snd_ctl_ext_key_t key, long *imin,
 				  long *imax, long *istep)
 {
-	printf("%s %d\n", __func__, __LINE__);
-	*istep = 1;
-	*imin = 0;
-	*imax = 0;
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr = ctls->tplg[key];
+	struct snd_soc_tplg_mixer_control *mixer_ctl =
+			(struct snd_soc_tplg_mixer_control *)hdr;
+	int err = 0;
 
-	return 0;
+	//printf("%s %d\n", __func__, __LINE__);
+
+	switch (hdr->type) {
+	case SND_SOC_TPLG_CTL_VOLSW:
+	case SND_SOC_TPLG_CTL_VOLSW_SX:
+	case SND_SOC_TPLG_CTL_VOLSW_XR_SX:
+		/* TLV uses the fields differently */
+		if (hdr->access & SND_CTL_EXT_ACCESS_TLV_READ ||
+		    hdr->access & SND_CTL_EXT_ACCESS_TLV_WRITE) {
+			*istep = mixer_ctl->hdr.tlv.scale.step;
+			*imin = (int32_t)mixer_ctl->hdr.tlv.scale.min;
+			*imax = mixer_ctl->max;
+		} else {
+			*istep = 1;
+			*imin = mixer_ctl->min;
+			*imax = mixer_ctl->max;
+		}
+		break;
+	default:
+		SNDERR("invalid ctl type for integer using key %d", key);
+		err = -EINVAL;
+		break;
+	}
+
+	return err;
 }
 
 static int plug_ctl_read_integer(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 			      long *value)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	int err = 0, i;
+	struct sof_ipc_ctrl_data ctl_data = {0};
+	int err;
 
-	printf("%s %d\n", __func__, __LINE__);
+	//printf("%s %d\n", __func__, __LINE__);
+
+	err = plug_ipc_cmd(&ctl->ipc, &ctl_data, sizeof(ctl_data),
+			   &ctl_data, sizeof(ctl_data));
+	if (err < 0) {
+		SNDERR("error: can't read CTL\n");
+		return err;
+	}
+
+	*value = 0; // TODO array based on channels;
 
 	return err;
 }
@@ -148,11 +204,178 @@ static int plug_ctl_write_integer(snd_ctl_ext_t * ext, snd_ctl_ext_key_t key,
 			       long *value)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	int err = 0, i;
+	struct sof_ipc_ctrl_data ctl_data = {0};
+	int err;
 
-	printf("%s %d\n", __func__, __LINE__);
+	//printf("%s %d\n", __func__, __LINE__);
+	err = plug_ipc_cmd(&ctl->ipc, &ctl_data, sizeof(ctl_data),
+			   &ctl_data, sizeof(ctl_data));
+	if (err < 0) {
+		SNDERR("error: can't write CTL\n");
+		return err;
+	}
 
 	return err;
+}
+
+/*
+ * Enum ops
+ */
+static int plug_ctl_get_enumerated_info(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
+		unsigned int *items)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr = ctls->tplg[key];
+	struct snd_soc_tplg_enum_control *enum_ctl =
+			(struct snd_soc_tplg_enum_control *)hdr;
+	int err = 0;
+
+	//printf("%s %d\n", __func__, __LINE__);
+
+	switch (hdr->type) {
+	case SND_SOC_TPLG_CTL_ENUM:
+	case SND_SOC_TPLG_CTL_ENUM_VALUE:
+		*items = enum_ctl->items;
+		break;
+	default:
+		SNDERR("invalid ctl type for enum using key %d", key);
+		err = -EINVAL;
+		break;
+	}
+
+	return err;
+}
+
+static int plug_ctl_get_enumerated_name(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
+					unsigned int item, char *name, size_t name_max_len)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr = ctls->tplg[key];
+	struct snd_soc_tplg_enum_control *enum_ctl =
+			(struct snd_soc_tplg_enum_control *)hdr;
+	int err = 0;
+
+	//printf("%s %d\n", __func__, __LINE__);
+
+	if (item >= enum_ctl->count) {
+		SNDERR("invalid item %d for enum using key %d", item, key);
+		return -EINVAL;
+	}
+
+	strncpy(name, enum_ctl->texts[item], name_max_len);
+	return 0;
+}
+
+static int plug_ctl_read_enumerated(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
+				    unsigned int *items)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct sof_ipc_ctrl_data ctl_data = {0};
+	int err;
+
+	//printf("%s %d\n", __func__, __LINE__);
+	err = plug_ipc_cmd(&ctl->ipc, &ctl_data, sizeof(ctl_data),
+			   &ctl_data, sizeof(ctl_data));
+	if (err < 0) {
+		SNDERR("error: can't write CTL\n");
+		return err;
+	}
+
+	return err;
+}
+
+static int plug_ctl_write_enumerated(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
+				     unsigned int *items)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct sof_ipc_ctrl_data ctl_data = {0};
+	int err;
+
+	//printf("%s %d\n", __func__, __LINE__);
+	err = plug_ipc_cmd(&ctl->ipc, &ctl_data, sizeof(ctl_data),
+			   &ctl_data, sizeof(ctl_data));
+	if (err < 0) {
+		SNDERR("error: can't write CTL\n");
+		return err;
+	}
+
+	return err;
+}
+
+/*
+ * Bytes ops
+ */
+
+static int plug_ctl_read_bytes(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
+			       unsigned char *data, size_t max_bytes)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr;
+	struct snd_soc_tplg_bytes_control *bytes = (struct snd_soc_tplg_bytes_control *)hdr;
+	struct sof_ipc_ctrl_data ctl_data = {0};
+	int err;
+
+	//printf("%s %d\n", __func__, __LINE__);
+	err = plug_ipc_cmd(&ctl->ipc, &ctl_data, sizeof(ctl_data),
+			   &ctl_data, sizeof(ctl_data));
+	if (err < 0) {
+		SNDERR("error: can't write CTL\n");
+		return err;
+	}
+
+	return err;
+}
+
+static int plug_ctl_write_bytes(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key,
+				unsigned char *data, size_t max_bytes)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr;
+	struct snd_soc_tplg_bytes_control *bytes = (struct snd_soc_tplg_bytes_control *)hdr;
+	struct sof_ipc_ctrl_data ctl_data = {0};
+	int err;
+
+	//printf("%s %d\n", __func__, __LINE__);
+	err = plug_ipc_cmd(&ctl->ipc, &ctl_data, sizeof(ctl_data),
+			   &ctl_data, sizeof(ctl_data));
+	if (err < 0) {
+		SNDERR("error: can't write CTL\n");
+		return err;
+	}
+
+	return err;
+}
+
+/*
+ * TLV ops
+ *
+ * The format of an array of \a tlv argument is:
+ *   tlv[0]:   Type. One of SND_CTL_TLVT_XXX.
+ *   tlv[1]:   Length. The length of value in units of byte.
+ *   tlv[2..]: Value. Depending on the type.
+ */
+static int plug_tlv_rw(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key, int op_flag,
+		       unsigned int numid, unsigned int *tlv, unsigned int tlv_size)
+{
+	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	struct snd_soc_tplg_ctl_hdr *hdr;
+	struct snd_soc_tplg_mixer_control *mixer_ctl;
+	int err = 0;
+
+	//printf("%s %d\n", __func__, __LINE__);
+	hdr = ctls->tplg[key];
+
+	//TODO: alsamixer showing wrong dB scales
+	tlv[0] = hdr->tlv.type;
+	tlv[1] = hdr->tlv.size - sizeof(uint32_t) * 2;
+	memcpy(&tlv[2], hdr->tlv.data, hdr->tlv.size - sizeof(uint32_t) * 2);
+
+	return 0;
 }
 
 static void plug_ctl_subscribe_events(snd_ctl_ext_t * ext, int subscribe)
@@ -169,7 +392,7 @@ static int plug_ctl_read_event(snd_ctl_ext_t * ext, snd_ctl_elem_id_t * id,
 	snd_sof_ctl_t *ctl = ext->private_data;
 	int offset;
 	int err;
-	printf("%s %d\n", __func__, __LINE__);
+//	printf("%s %d\n", __func__, __LINE__);
 
 	*event_mask = SND_CTL_EVENT_MASK_VALUE;
 
@@ -196,7 +419,12 @@ static int plug_ctl_poll_revents(snd_ctl_ext_t * ext, struct pollfd *pfd,
 static void plug_ctl_close(snd_ctl_ext_t * ext)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
+	struct plug_ctl *ctls = &ctl->ctls;
+	int i;
+
 	printf("%s %d\n", __func__, __LINE__);
+	for (i = 0; i < ctls->count; i++)
+		free(ctls->tplg[i]);
 
 	free(ctl);
 }
@@ -209,6 +437,12 @@ static const snd_ctl_ext_callback_t sof_ext_callback = {
 	.get_integer_info = plug_ctl_get_integer_info,
 	.read_integer = plug_ctl_read_integer,
 	.write_integer = plug_ctl_write_integer,
+	.get_enumerated_info = plug_ctl_get_enumerated_info,
+	.get_enumerated_name = plug_ctl_get_enumerated_name,
+	.read_enumerated = plug_ctl_read_enumerated,
+	.write_enumerated = plug_ctl_write_enumerated,
+	.read_bytes = plug_ctl_read_bytes,
+	.write_bytes = plug_ctl_write_bytes,
 	.subscribe_events = plug_ctl_subscribe_events,
 	.read_event = plug_ctl_read_event,
 	.poll_revents = plug_ctl_poll_revents,
@@ -275,7 +509,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 	strncpy(ctl->ext.driver, "SOF plugin",
 		sizeof(ctl->ext.driver) - 1);
 	strncpy(ctl->ext.name, "SOF", sizeof(ctl->ext.name) - 1);
-	strncpy(ctl->ext.longname, "SOF",
+	strncpy(ctl->ext.longname, plug->tplg.tplg_file,
 		sizeof(ctl->ext.longname) - 1);
 	strncpy(ctl->ext.mixername, "SOF",
 		sizeof(ctl->ext.mixername) - 1);
@@ -283,6 +517,8 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 
 	ctl->ext.callback = &sof_ext_callback;
 	ctl->ext.private_data = ctl;
+	ctl->ext.tlv.c = plug_tlv_rw;
+
 	printf("%s %d\n", __func__, __LINE__);
 	err = snd_ctl_ext_create(&ctl->ext, name, mode);
 	if (err < 0)

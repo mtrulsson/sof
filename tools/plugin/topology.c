@@ -297,7 +297,8 @@ static int get_next_hdr(struct tplg_context *ctx, struct snd_soc_tplg_hdr *hdr,
 	return 1;
 }
 
-static int plug_ctl_init(struct plug_ctl *ctls, struct snd_soc_tplg_ctl_hdr *tplg_ctl)
+static int plug_ctl_init(struct tplg_context *ctx, struct plug_ctl *ctls,
+			 struct snd_soc_tplg_ctl_hdr *tplg_ctl)
 {
 	struct snd_soc_tplg_ctl_hdr *_tplg_ctl;
 
@@ -307,24 +308,32 @@ static int plug_ctl_init(struct plug_ctl *ctls, struct snd_soc_tplg_ctl_hdr *tpl
 	}
 
 	/* ignore kcontrols without a name */
-	if (strnlen(tplg_ctl->name, SNDRV_CTL_ELEM_ID_NAME_MAXLEN) == 0)
+	if (strnlen(tplg_ctl->name, SNDRV_CTL_ELEM_ID_NAME_MAXLEN - 1) == 0)
 		return 0;
 
-	_tplg_ctl = &ctls->tplg[ctls->count];
-	*_tplg_ctl = *tplg_ctl;
+	ctls->tplg[ctls->count] = calloc(1, ctx->hdr->payload_size);
+	if (!ctls->tplg[ctls->count])
+		return -ENOMEM;
+
+	memcpy(ctls->tplg[ctls->count], tplg_ctl, ctx->hdr->payload_size);
 	ctls->count++;
 
 	return 0;
 }
 
-static int plug_new_pga_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
+static int plug_new_pga_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+			    struct plug_ctl *ctl)
 {
 	struct sof_ipc_comp_volume volume = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_pga(ctx, &volume, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_pga(ctx, &volume, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create PGA\n");
 		goto out;
@@ -333,24 +342,30 @@ static int plug_new_pga_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struc
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
-static int plug_new_mixer_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
+static int plug_new_mixer_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+			      struct plug_ctl *ctl)
 {
 	struct sof_ipc_comp_mixer mixer = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_mixer(ctx, &mixer, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_mixer(ctx, &mixer, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create mixer\n");
 		goto out;
@@ -359,24 +374,30 @@ static int plug_new_mixer_ipc(struct tplg_context *ctx, struct plug_mq *ipc, str
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
-static int plug_new_src_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
+static int plug_new_src_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+			    struct plug_ctl *ctl)
 {
 	struct sof_ipc_comp_src src = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_src(ctx, &src, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_src(ctx, &src, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create src\n");
 		goto out;
@@ -385,24 +406,30 @@ static int plug_new_src_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struc
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
-static int plug_new_asrc_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
+static int plug_new_asrc_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+			     struct plug_ctl *ctl)
 {
 	struct sof_ipc_comp_asrc asrc = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_asrc(ctx, &asrc, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_asrc(ctx, &asrc, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create PGA\n");
 		goto out;
@@ -411,24 +438,30 @@ static int plug_new_asrc_ipc(struct tplg_context *ctx, struct plug_mq *ipc, stru
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
-static int plug_new_process_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
+static int plug_new_process_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+				struct plug_ctl *ctl)
 {
 	struct sof_ipc_comp_process process = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_process(ctx, &process, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_process(ctx, &process, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create PGA\n");
 		goto out;
@@ -437,24 +470,30 @@ static int plug_new_process_ipc(struct tplg_context *ctx, struct plug_mq *ipc, s
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
-static int plug_new_pipeline_ipc(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
+static int plug_new_pipeline_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
+				 struct plug_ctl *ctl)
 {
 	struct sof_ipc_pipe_new pipeline = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_pipeline(ctx, &pipeline, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_pipeline(ctx, &pipeline, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create pipeline\n");
 		goto out;
@@ -463,13 +502,14 @@ static int plug_new_pipeline_ipc(struct tplg_context *ctx, struct plug_mq *ipc, 
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
@@ -478,10 +518,14 @@ static int plug_new_buffer_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
 {
 	struct sof_ipc_buffer buffer = {0};
 	struct sof_ipc_comp_reply reply = {0};
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
 	int ret;
 
-	ret = tplg_new_buffer(ctx, &buffer, &tplg_ctl);
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_buffer(ctx, &buffer, tplg_ctl);
 	if (ret < 0) {
 		fprintf(stderr, "error: failed to create pipeline\n");
 		goto out;
@@ -490,13 +534,14 @@ static int plug_new_buffer_ipc(struct tplg_context *ctx, struct plug_mq *ipc,
 			&reply, sizeof(reply));
 	if (ret < 0) {
 		SNDERR("error: can't connect\n");
-		return ret;
+		goto out;
 	}
 
 	if (ctl)
-		ret = plug_ctl_init(ctl, &tplg_ctl);
+		ret = plug_ctl_init(ctx, ctl, tplg_ctl);
 
 out:
+	free(tplg_ctl);
 	return ret;
 }
 
@@ -504,7 +549,6 @@ out:
 int plug_load_widget(struct tplg_context *ctx, struct plug_mq *ipc, struct plug_ctl *ctl)
 {
 	struct comp_info *temp_comp_list = ctx->info;
-	struct snd_soc_tplg_ctl_hdr tplg_ctl;
 	int comp_index = ctx->info_index;
 	int comp_id = ctx->comp_id;
 	int ret = 0;
