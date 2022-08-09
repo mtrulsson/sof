@@ -28,11 +28,36 @@
 #include <pthread.h>
 #include <limits.h>
 #include <getopt.h>
+#include <dlfcn.h>
+
+#include <sof/sof.h>
+#include <sof/schedule/task.h>
+#include <sof/lib/alloc.h>
+#include <sof/lib/notifier.h>
+#include <sof/ipc/driver.h>
+#include <sof/ipc/topology.h>
+#include <sof/lib/agent.h>
+#include <sof/lib/dai.h>
+#include <sof/lib/dma.h>
+#include <sof/schedule/edf_schedule.h>
+#include <sof/schedule/ll_schedule.h>
+#include <sof/schedule/ll_schedule_domain.h>
+#include <sof/schedule/schedule.h>
+#include <sof/lib/wait.h>
+#include <sof/audio/pipeline.h>
+#include <sof/audio/component.h>
+#include <sof/audio/component_ext.h>
 
 #include "plugin.h"
 #include "common.h"
 
 #define VERSION		"v0.1"
+#define MAX_MODULE_ID	256
+
+struct sof_pipe_module {
+	void *handle;
+	char uuid[SOF_UUID_SIZE];
+};
 
 struct sof_pipe {
 	const char *alsa_name;
@@ -42,6 +67,7 @@ struct sof_pipe {
 	int use_E_core;
 	int capture;
 	int dead;
+	int file_mode;
 
 	struct sigaction action;
 
@@ -54,6 +80,7 @@ struct sof_pipe {
 	struct plug_shm_context pcm;
 
 	FILE *log;
+	pthread_mutex_t ipc_lock;
 
 	/* PCM IPC */
 	pthread_t ipc_pcm_thread;
@@ -64,10 +91,41 @@ struct sof_pipe {
 	pthread_t ipc_ctl_thread;
 	int ctl_ipc_thread_running;
 	struct plug_mq ctl_ipc;
+
+	/* module SO handles */
+	struct sof_pipe_module module[MAX_MODULE_ID];
+	int mod_idx;
 };
 
 /* global needed for signal handler */
 struct sof_pipe *_sp;
+
+/* dump the IPC data - dont print lines of 0s */
+static void pipe_ipc_dump(void *vdata, size_t bytes)
+{
+	uint32_t *data = vdata;
+	size_t words = bytes >> 2;
+	int i;
+
+	for (i = 0; i < words; i++) {
+		/* 4 words per line */
+		if (i % 4 == 0) {
+			/* delete lines with all 0s */
+			if (i > 0 &&
+				data[i - 3] == 0 &&
+				data[i - 2] == 0 &&
+				data[i - 1] == 0 &&
+				data[i - 0] == 0)
+				printf("\r");
+			else
+				printf("\n");
+
+			printf("0x%4.4x: 0x%8.8x", i, data[i]);
+		} else
+			printf(" 0x%8.8x", data[i]);
+	}
+	printf("\n");
+}
 
 /* read the CPU ID register data on x86 */
 static inline void x86_cpuid(unsigned int *eax, unsigned int *ebx,
@@ -137,6 +195,8 @@ static void shutdown(struct sof_pipe *sp)
 
 	mq_close(sp->ctl_ipc.mq);
 	mq_unlink(sp->ctl_ipc.queue_name);
+
+	pthread_mutex_destroy(&sp->ipc_lock);
 
 	fflush(sp->log);
 	fflush(stdout);
@@ -257,6 +317,114 @@ static int pipe_set_ipc_lowpri(struct sof_pipe *sp)
 	return 0;
 }
 
+static int pipe_ipc_message(struct sof_pipe *sp, void *mailbox)
+{
+	int err = 0;
+
+	/* reply is copied back to mailbox */
+	pthread_mutex_lock(&sp->ipc_lock);
+	ipc_cmd(mailbox);
+	pthread_mutex_unlock(&sp->ipc_lock);
+
+	return err;
+}
+
+static int pipe_register_comp(struct sof_pipe *sp, struct sof_ipc_comp *comp,
+		struct sof_ipc_comp_ext *comp_ext)
+{
+	char uuid_sofile[NAME_SIZE];
+	char *uuid;
+	int index;
+	void (*entry)(void);
+	int i;
+
+	/* determine module uuid */
+	switch (comp->type) {
+	case SOF_COMP_HOST:
+		/* HOST is the sof-pipe SHM */
+		break;
+	case SOF_COMP_DAI:
+		/* DAI is either ALSA device or file */
+		break;
+	default:
+		/* dont care */
+		break;
+	}
+
+	/* check if module already loaded */
+	for (i = 0; i < sp->mod_idx; i++) {
+		if (!strncmp(sp->module[i].uuid, comp_ext->uuid, sizeof(*comp_ext->uuid)))
+			return 0; /* module found and already loaded */
+	}
+
+	/* TODO: try other paths */
+	snprintf(uuid_sofile, sizeof(uuid_sofile), "libsof-%s.so", comp_ext->uuid);
+	printf("try to load module: %s\n", uuid_sofile);
+
+	/* not loaded, so load module */
+	sp->module[sp->mod_idx].handle = dlopen(uuid_sofile, RTLD_LAZY);
+	if (!sp->module[sp->mod_idx].handle) {
+		fprintf(stderr, "error: cant load module %s : %s\n",
+			uuid, dlerror());
+		return -errno;
+	}
+
+	/* find the module entry */
+	entry = dlsym(sp->module[sp->mod_idx].handle, "init");
+	if (!entry) {
+		fprintf(stderr, "error: cant get entry for module %s : %s\n",
+			uuid, dlerror());
+		return -errno;
+	}
+
+	/* register the module */
+	entry();
+	sp->mod_idx++;
+
+	return 0;
+}
+
+static int pipe_comp_new(struct sof_pipe *sp, struct sof_ipc_cmd_hdr *hdr)
+{
+	struct sof_ipc_comp *comp = (struct sof_ipc_comp *)hdr;
+	struct sof_ipc_comp_ext *comp_ext;
+	int ret;
+
+	if (comp->ext_data_length == 0) {
+		fprintf(stderr, "error: no uuid for hdr 0x%x\n", hdr->cmd);
+		return -EINVAL;
+	}
+
+	comp_ext = (struct sof_ipc_comp_ext *)(comp + 1);
+
+	ret = pipe_register_comp(sp, comp, comp_ext);
+	return 0;
+}
+
+static int pipe_comp_free(struct sof_pipe *sp, struct sof_ipc_cmd_hdr *hdr)
+{
+	return 0;
+}
+
+#define iCS(x) ((x) & SOF_CMD_TYPE_MASK)
+
+static int pipe_sof_pcm_ipc_message(struct sof_pipe *sp, void *mailbox)
+{
+	struct sof_ipc_cmd_hdr *hdr = mailbox;
+	int err = 0;
+	uint32_t cmd = iCS(hdr->cmd);
+
+	switch (cmd) {
+	case SOF_IPC_TPLG_COMP_NEW:
+		return pipe_comp_new(sp, hdr);
+	case SOF_IPC_TPLG_COMP_FREE:
+		return pipe_comp_free(sp, hdr);
+	default:
+		/* handled by SOF core */
+		return 1;
+	}
+}
+
 static void *pipe_ipc_pcm_thread(void *arg)
 {
 	struct sof_pipe *sp = arg;
@@ -292,8 +460,12 @@ static void *pipe_ipc_pcm_thread(void *arg)
 
 		/* do the message work */
 		printf("got IPC %ld bytes from PCM: %s\n", ipc_size, mailbox);
+		pipe_ipc_dump(mailbox, IPC3_MAX_MSG_SIZE);
 		if (sp->dead)
 			break;
+
+		if (pipe_sof_pcm_ipc_message(sp, mailbox))
+			pipe_ipc_message(sp, mailbox);
 
 		/* now return message completion status */
 		err = mq_send(sp->pcm_ipc.mq, mailbox, IPC3_MAX_MSG_SIZE, 0);
@@ -345,6 +517,7 @@ static void *pipe_ipc_ctl_thread(void *arg)
 		printf("got IPC %ld bytes from CTL: %s\n", ipc_size, mailbox);
 		if (sp->dead)
 			break;
+		pipe_ipc_message(sp, mailbox);
 
 		/* now return message completion status */
 		err = mq_send(sp->ctl_ipc.mq, mailbox, IPC3_MAX_MSG_SIZE, 0);
@@ -479,6 +652,44 @@ static int pipe_process_capture(struct sof_pipe *sp)
 	return 0;
 }
 
+// TODO: all these stepd are probably not needed - i.e we only need IPC and pipeline.
+static int pipe_sof_setup(struct sof *sof)
+{
+	struct ll_schedule_domain domain = {0};
+
+	/* register modules */
+
+
+	domain.next_tick = 0;
+
+	/* init components */
+	sys_comp_init(sof);
+
+	/* other necessary initializations, todo: follow better SOF init */
+	pipeline_posn_init(sof);
+	init_system_notify(sof);
+
+	/* init IPC */
+	if (ipc_init(sof) < 0) {
+		fprintf(stderr, "error: IPC init\n");
+		return -EINVAL;
+	}
+
+	/* init LL scheduler */
+	if (scheduler_init_ll(&domain) < 0) {
+		fprintf(stderr, "error: edf scheduler init\n");
+		return -EINVAL;
+	}
+
+	/* init EDF scheduler */
+	if (scheduler_init_edf() < 0) {
+		fprintf(stderr, "error: edf scheduler init\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /*
  * -D ALSA device. e.g. hw:0,1
  * -R realtime (needs parent to set uid)
@@ -508,6 +719,12 @@ int main(int argc, char *argv[], char *env[])
 	/* default config */
 	sp.log = stdout;
 	_sp = &sp;
+
+	ret = pthread_mutex_init(&sp.ipc_lock, NULL);
+	if (ret < 0) {
+		fprintf(sp.log, "error: cant create mutex %s\n",  strerror(errno));
+		exit(EXIT_FAILURE);
+	}
 
 	/* parse all args */
 	while ((option = getopt(argc, argv, "hD:Rpect:")) != -1) {
@@ -600,6 +817,12 @@ int main(int argc, char *argv[], char *env[])
 		ret = pipe_set_affinity(&sp);
 		if (ret < 0)
 			goto out;
+	}
+
+	/* initialize ipc and scheduler */
+	if (pipe_sof_setup(sof_get()) < 0) {
+		fprintf(stderr, "error: pipeline init\n");
+		exit(EXIT_FAILURE);
 	}
 
 	/* start PCM IPC thread */

@@ -109,16 +109,6 @@ int tplg_parse_ipc3_process(struct tplg_context *ctx,
 			return -EINVAL;
 		}
 
-		/* parse uuid token */
-		ret = sof_parse_tokens(uuid, comp_ext_tokens,
-				       ARRAY_SIZE(comp_ext_tokens), array,
-				       array->size);
-		if (ret != 0) {
-			fprintf(stderr, "error: parse asrc uuid token %d\n", size);
-			free(array);
-			return -EINVAL;
-		}
-
 		total_array_size += array->size;
 
 		/* read next array */
@@ -205,7 +195,7 @@ int tplg_new_process(struct tplg_context *ctx, struct sof_ipc_comp_process *proc
 	char *priv_data = NULL;
 	int ret;
 	int i;
-
+// missing ext UUID
 	ret = tplg_parse_ipc3_process(ctx, process, &comp_ext);
 	if (ret < 0)
 		return ret;

@@ -36,6 +36,8 @@ typedef struct snd_sof_ctl {
 	snd_ctl_ext_t ext;
 	struct plug_mq ipc;
 	struct plug_shm_context shm_ctx;
+	int subscribed;
+
 } snd_sof_ctl_t;
 
 /* number of ctls */
@@ -381,21 +383,31 @@ static int plug_tlv_rw(snd_ctl_ext_t *ext, snd_ctl_ext_key_t key, int op_flag,
 static void plug_ctl_subscribe_events(snd_ctl_ext_t * ext, int subscribe)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	printf("%s %d\n", __func__, __LINE__);
+	//printf("%s %d\n", __func__, __LINE__);
 
-	//ctl->subscribed = !!(subscribe & SND_CTL_EVENT_MASK_VALUE);
+	ctl->subscribed = !!(subscribe & SND_CTL_EVENT_MASK_VALUE);
 }
 
 static int plug_ctl_read_event(snd_ctl_ext_t * ext, snd_ctl_elem_id_t * id,
 			    unsigned int *event_mask)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	int offset;
-	int err;
+	struct plug_ctl *ctls = &ctl->ctls;
+	int numid;
+	int err = 0;
 //	printf("%s %d\n", __func__, __LINE__);
 
-	*event_mask = SND_CTL_EVENT_MASK_VALUE;
+	numid = snd_ctl_elem_id_get_numid(id);
 
+	// TODO: we need a notify() or listening thread to take async/volatile ctl
+	// notifications from sof-pipe and notify userspace via events of the ctl change.
+	if (!ctls->updated[numid - 1] || !ctl->subscribed) {
+		err = -EAGAIN;
+		goto out;
+	}
+
+	*event_mask = SND_CTL_EVENT_MASK_VALUE;
+out:
 	return err;
 }
 
@@ -404,15 +416,19 @@ static int plug_ctl_poll_revents(snd_ctl_ext_t * ext, struct pollfd *pfd,
 				  unsigned short *revents)
 {
 	snd_sof_ctl_t *ctl = ext->private_data;
-	int err;
-	printf("%s %d\n", __func__, __LINE__);
+	struct plug_ctl *ctls = &ctl->ctls;
+	int err, i;
+	//printf("%s %d\n", __func__, __LINE__);
 
-#if 0
-	if (ctl->updated)
-		*revents = POLLIN;
-	else
-		*revents = 0;
-#endif
+	*revents = 0;
+
+	for (i = 0; i < ctls->count; i++) {
+		if (ctls->updated[i]) {
+			*revents = POLLIN;
+			break;
+		}
+	}
+
 	return 0;
 }
 
@@ -422,7 +438,7 @@ static void plug_ctl_close(snd_ctl_ext_t * ext)
 	struct plug_ctl *ctls = &ctl->ctls;
 	int i;
 
-	printf("%s %d\n", __func__, __LINE__);
+	//printf("%s %d\n", __func__, __LINE__);
 	for (i = 0; i < ctls->count; i++)
 		free(ctls->tplg[i]);
 
@@ -503,6 +519,7 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 		goto error;
 	}
 
+	/* TODO: add some flavour to the names based on the topology */
 	ctl->ext.version = SND_CTL_EXT_VERSION;
 	ctl->ext.card_idx = 0;
 	strncpy(ctl->ext.id, "sof", sizeof(ctl->ext.id) - 1);
@@ -513,17 +530,18 @@ SND_CTL_PLUGIN_DEFINE_FUNC(sof)
 		sizeof(ctl->ext.longname) - 1);
 	strncpy(ctl->ext.mixername, "SOF",
 		sizeof(ctl->ext.mixername) - 1);
-//	ctl->ext.poll_fd = ctl->p->main_fd;
+
+	/* polling on message queue - supported on Linux but not portable */
+	ctl->ext.poll_fd = ctl->ipc.mq;
 
 	ctl->ext.callback = &sof_ext_callback;
 	ctl->ext.private_data = ctl;
 	ctl->ext.tlv.c = plug_tlv_rw;
 
-	printf("%s %d\n", __func__, __LINE__);
 	err = snd_ctl_ext_create(&ctl->ext, name, mode);
 	if (err < 0)
 		goto error;
-	printf("%s %d\n", __func__, __LINE__);
+
 	*handlep = ctl->ext.handle;
 
 	return 0;

@@ -38,6 +38,7 @@ typedef struct snd_sof_pcm {
 	struct timespec wait_timeout;
 	int capture;
 	int copies;
+	int events;
 
 	/* PCM flow control */
 	struct plug_lock ready;
@@ -419,6 +420,30 @@ static int plug_pcm_close(snd_pcm_ioplug_t * io)
 	return err;
 }
 
+static int plug_pcm_poll_revents(snd_pcm_ioplug_t * io,
+				  struct pollfd *pfd, unsigned int nfds,
+				  unsigned short *revents)
+{
+	snd_sof_plug_t *plug = io->private_data;
+	snd_sof_pcm_t *pcm = plug->module_prv;
+	struct plug_context *ctx = pcm->shm_ctx.addr;
+	int err;
+
+	printf("%s %d\n", __func__, __LINE__);
+
+	err = plug_check_sofpipe_status(plug, 0);
+	if (err)
+		return err;
+
+	if (pcm->copies != pcm->events) {
+		*revents = io->stream == SND_PCM_STREAM_PLAYBACK ? POLLOUT : POLLIN;
+		pcm->events = pcm->copies;
+	} else
+		*revents = 0;
+
+	return err;
+}
+
 static const snd_pcm_ioplug_callback_t sof_playback_callback = {
 	.start = plug_pcm_start,
 	.stop = plug_pcm_stop,
@@ -429,6 +454,7 @@ static const snd_pcm_ioplug_callback_t sof_playback_callback = {
 	.prepare = plug_pcm_prepare,
 	.hw_params = plug_pcm_hw_params,
 	.sw_params = plug_pcm_sw_params,
+	.poll_revents = plug_pcm_poll_revents,
 	.close = plug_pcm_close,
 };
 
@@ -441,6 +467,7 @@ static const snd_pcm_ioplug_callback_t sof_capture_callback = {
 	.delay = plug_pcm_delay,
 	.prepare = plug_pcm_prepare,
 	.hw_params = plug_pcm_hw_params,
+	.poll_revents = plug_pcm_poll_revents,
 	.close = plug_pcm_close,
 };
 
@@ -539,7 +566,7 @@ static int plug_create(snd_sof_plug_t *plug, snd_pcm_t **pcmp, const char *name,
 
 	pcm->io.version = SND_PCM_IOPLUG_VERSION;
 	pcm->io.name = "ALSA <-> SOF PCM I/O Plugin";
-	//plug->io.poll_fd = plug->ctx->main_fd;
+	pcm->io.poll_fd = pcm->shm_pcm.fd;
 	pcm->io.poll_events = POLLIN;
 	pcm->io.mmap_rw = 0;
 
