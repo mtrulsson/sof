@@ -63,4 +63,11 @@ target_include_directories(sof-fuzzer PRIVATE
 	"${SOF_ROOT_SOURCE_DIRECTORY}"
 )
 
+# TODO: fuzzer should not need RTOS headers: FIX.
+if (NOT CONFIG_SOF_ZEPHYR_STRICT_HEADERS)
+target_include_directories(sof-fuzzer PRIVATE
+	"${SOF_ROOT_SOURCE_DIRECTORY}/xtos/include"
+)
+endif()
+
 install(TARGETS sof-fuzzer DESTINATION bin)
