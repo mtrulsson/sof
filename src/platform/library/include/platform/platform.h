@@ -11,7 +11,7 @@
 #ifndef __PLATFORM_PLATFORM_H__
 #define __PLATFORM_PLATFORM_H__
 
-#include <arch/lib/wait.h>
+#include <rtos/wait.h>
 #include <sof/lib/clk.h>
 #include <sof/lib/mailbox.h>
 #include <stdint.h>
@@ -57,16 +57,6 @@ struct timer;
 #define DMA_TRACE_RESCHEDULE_TIME       100
 
 static inline void platform_panic(uint32_t p) {}
-
-/**
- * \brief Platform specific CPU entering idle.
- * May be power-optimized using platform specific capabilities.
- * @param level Interrupt level.
- */
-static inline void platform_wait_for_interrupt(int level)
-{
-	arch_wait_for_interrupt(level);
-}
 
 static inline int ipc_platform_send_msg(const struct ipc_msg *msg) { return 0; }
 

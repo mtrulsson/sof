@@ -100,13 +100,6 @@ static inline void platform_panic(uint32_t p)
 	ipc_write(IPC_DIPCI, 0x80000000 | (p & 0x3fffffff));
 }
 
-/**
- * \brief Platform specific CPU entering idle.
- * May be power-optimized using platform specific capabilities.
- * @param level Interrupt level.
- */
-void platform_wait_for_interrupt(int level);
-
 extern intptr_t _module_init_start;
 extern intptr_t _module_init_end;
 

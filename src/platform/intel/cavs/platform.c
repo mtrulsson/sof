@@ -33,7 +33,7 @@
 #include <sof/lib/mm_heap.h>
 #include <sof/lib/notifier.h>
 #include <sof/lib/pm_runtime.h>
-#include <sof/lib/wait.h>
+#include <rtos/wait.h>
 #include <sof/platform.h>
 #include <sof/schedule/edf_schedule.h>
 #include <sof/schedule/ll_schedule.h>
@@ -547,35 +547,6 @@ int platform_init(struct sof *sof)
 
 	return 0;
 }
-
-#ifndef __ZEPHYR__
-void platform_wait_for_interrupt(int level)
-{
-	platform_clock_on_waiti();
-
-#ifdef CONFIG_MULTICORE
-	int cpu_id = cpu_get_id();
-
-	/* for secondary cores, if prepare_d0ix_core_mask flag is set for
-	 * specific core, we should prepare for power down before going to wait
-	 * - it is required by D0->D0ix flow.
-	 */
-	if (cpu_id != PLATFORM_PRIMARY_CORE_ID &&
-	    platform_pm_runtime_prepare_d0ix_is_req(cpu_id))
-		cpu_power_down_core(CPU_POWER_DOWN_MEMORY_ON);
-#endif
-
-#if (CONFIG_CAVS_LPS)
-	if (pm_runtime_is_active(PM_RUNTIME_DSP, PLATFORM_PRIMARY_CORE_ID) ||
-	    cpu_get_id() != PLATFORM_PRIMARY_CORE_ID)
-		arch_wait_for_interrupt(level);
-	else
-		lps_wait_for_interrupt(level);
-#else
-	arch_wait_for_interrupt(level);
-#endif
-}
-#endif
 
 #if CONFIG_CAVS_IMR_D3_PERSISTENT
 /* These structs and macros are from from the ROM code header

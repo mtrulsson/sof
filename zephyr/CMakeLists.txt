@@ -542,7 +542,6 @@ zephyr_library_sources(
 	${SOF_LIB_PATH}/notifier.c
 	${SOF_LIB_PATH}/lib.c
 	${SOF_LIB_PATH}/pm_runtime.c
-	${SOF_LIB_PATH}/wait.c
 	${SOF_LIB_PATH}/dma.c
 	${SOF_LIB_PATH}/dai.c
 

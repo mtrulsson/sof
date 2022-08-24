@@ -20,7 +20,6 @@
 
 #if !defined(__ASSEMBLER__) && !defined(LINKER)
 
-#include <arch/lib/wait.h>
 #include <sof/drivers/interrupt.h>
 #include <sof/lib/clk.h>
 #include <sof/lib/mailbox.h>
@@ -83,19 +82,6 @@ static inline void platform_panic(uint32_t p)
 {
 	shim_write(SHIM_IPCDL, p);
 	shim_write(SHIM_IPCDH, (SHIM_IPCDH_BUSY | MAILBOX_EXCEPTION_OFFSET));
-}
-
-/**
- * \brief Platform specific CPU entering idle.
- * May be power-optimized using platform specific capabilities.
- * @param level Interrupt level.
- */
-static inline void platform_wait_for_interrupt(int level)
-{
-	if (arch_interrupt_get_level())
-		panic(SOF_IPC_PANIC_WFI);
-
-	arch_wait_for_interrupt(level);
 }
 
 /* Platform defined trace code */
