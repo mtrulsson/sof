@@ -14,6 +14,10 @@
 #include <sof/platform.h>
 #include <stdint.h>
 
+#ifdef __ZEPHYR__
+#error Features in this file now handled natively by Zephyr when using Zephyr config
+#endif
+
 struct comp_dev;
 struct sof_ipc_stream_posn;
 
@@ -85,6 +89,11 @@ static inline uint64_t k_ms_to_cyc_ceil64(uint64_t ms)
 static inline uint64_t k_us_to_cyc_ceil64(uint64_t us)
 {
 	return clock_us_to_ticks(PLATFORM_DEFAULT_CLOCK, us);
+}
+
+static inline uint32_t k_us_to_cyc_ceil32(uint32_t us)
+{
+	return (uint32_t)clock_us_to_ticks(PLATFORM_DEFAULT_CLOCK, us);
 }
 
 static inline uint64_t k_ns_to_cyc_near64(uint64_t ns)
